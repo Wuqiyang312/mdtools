@@ -1,18 +1,26 @@
 # MDTools Server
 
-Markdown 转换工具的 Web 服务接口
+文档格式转换工具的 Web 服务接口，提供 REST API 和 Web 界面。
+
+## 功能特性
+
+- **Web 界面**: 直观的网页界面进行文件转换
+- **REST API**: JSON API 和文件上传两种方式
+- **CORS 支持**: 允许跨域请求
+- **请求日志**: 记录所有 HTTP 请求
 
 ## 启动服务
 
 ```bash
 # 使用默认端口 (8080)
-./server/run.sh
+cd server
+python server.py
 
 # 自定义端口
-PORT=3000 ./server/run.sh
+python server.py --port 3000
 
-# 或直接运行
-python3 server/server.py --port 8080
+# 指定监听地址
+python server.py --host 127.0.0.1 --port 8080
 ```
 
 ## Web 界面
@@ -93,20 +101,12 @@ curl -X POST http://localhost:8080/convert \
 curl http://localhost:8080/health
 ```
 
-## Docker 部署
+## 开发
 
 ```bash
-cd server/docker
+# 运行测试
+pytest server/tests/
 
-# 构建镜像
-./build.sh
-
-# 或使用 docker-compose
-./run.sh
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
+# 代码格式化
+ruff format server/
 ```
