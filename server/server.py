@@ -7,11 +7,13 @@ Markdown 转换工具的 Web 服务接口
 
 import os
 import sys
-import subprocess
 import argparse
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+
+from handlers import HealthHandler, ConvertHandler
+from middleware import CORSMiddleware, RequestLogger
 
 
 SCRIPT_DIR = Path(__file__).parent
@@ -91,100 +93,64 @@ HTML_PAGE = """<!DOCTYPE html>
 
 
 class ConvertHandler(BaseHTTPRequestHandler):
-    def _set_headers(self, status=200, content_type="application/json"):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-
+    """HTTP 请求处理器"""
+    
+    @CORSMiddleware.add_cors_headers
     def do_OPTIONS(self):
-        self._set_headers(200)
-
+        """处理 CORS 预检请求"""
+        self.send_response(200)
+        self.end_headers()
+    
     def do_GET(self):
+        """处理 GET 请求"""
+        RequestLogger.log_request(self)
+        
         if self.path == "/health":
-            self._set_headers()
-            self.wfile.write(json.dumps({"status": "healthy"}).encode())
+            HealthHandler.handle(self)
         elif self.path == "/" or self.path == "/index.html":
-            self._set_headers(200, "text/html; charset=utf-8")
-            self.wfile.write(HTML_PAGE.encode("utf-8"))
+            self._serve_html_page()
         else:
-            self._set_headers(404)
-            self.wfile.write(json.dumps({"error": "Not found"}).encode())
-
+            self._send_404()
+    
     def do_POST(self):
+        """处理 POST 请求"""
+        RequestLogger.log_request(self)
+        
         if self.path == "/convert":
             content_type = self.headers.get("Content-Type", "")
-
-            if "multipart/form-data" in content_type:
-                self.handle_file_upload()
-            elif "application/json" in content_type:
-                self.handle_json_request()
+            
+            if "application/json" in content_type:
+                self._handle_json_request()
+            elif "multipart/form-data" in content_type:
+                self._handle_file_upload()
             else:
-                self._set_headers(400)
-                self.wfile.write(
-                    json.dumps({"error": "Unsupported content type"}).encode()
-                )
-            return
-
-        self._set_headers(404)
-        self.wfile.write(json.dumps({"error": "Not found"}).encode())
-
-    def handle_json_request(self):
+                ConvertHandler._send_error(self, 400, "Unsupported content type")
+        else:
+            self._send_404()
+    
+    def _handle_json_request(self):
+        """处理 JSON 请求"""
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
-
+        
         try:
-            req = json.loads(body)
+            request_data = json.loads(body)
+            ConvertHandler.handle_json_request(self, request_data)
         except json.JSONDecodeError as e:
-            self._set_headers(400)
-            self.wfile.write(json.dumps({"error": f"Invalid JSON: {e}"}).encode())
-            return
-
-        input_path = req.get("input_path")
-        output_path = req.get("output_path")
-        format_type = req.get("format")
-
-        if not input_path or not format_type:
-            self._set_headers(400)
-            self.wfile.write(
-                json.dumps(
-                    {"success": False, "error": "input_path and format are required"}
-                ).encode()
-            )
-            return
-
-        try:
-            result_path = run_conversion(input_path, output_path, format_type)
-            self._set_headers()
-            self.wfile.write(
-                json.dumps(
-                    {
-                        "success": True,
-                        "message": "Conversion successful",
-                        "output_path": result_path,
-                    }
-                ).encode()
-            )
-        except Exception as e:
-            self._set_headers(500)
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
-
-    def handle_file_upload(self):
+            ConvertHandler._send_error(self, 400, f"Invalid JSON: {e}")
+    
+    def _handle_file_upload(self):
+        """处理文件上传"""
         content_type = self.headers.get("Content-Type", "")
-        boundary = None
-
-        if "boundary=" in content_type:
-            boundary = content_type.split("boundary=")[1].strip()
-
+        boundary = content_type.split("boundary=")[1].strip() if "boundary=" in content_type else None
+        
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
-
+        
         file_data = None
         file_name = None
         format_type = None
-
+        
         if boundary:
             parts = body.split(boundary.encode())
             for part in parts:
@@ -194,91 +160,37 @@ class ConvertHandler(BaseHTTPRequestHandler):
                         header = part[:header_end].decode("utf-8", errors="ignore")
                         if 'filename="' in header:
                             file_name = header.split('filename="')[1].split('"')[0]
-                            file_data = part[header_end + 4 :].rstrip(b"\r\n-")
-
+                            file_data = part[header_end + 4:].rstrip(b"\r\n-")
+                
                 if b'name="format"' in part:
                     header_end = part.find(b"\r\n\r\n")
                     if header_end != -1:
-                        format_type = (
-                            part[header_end + 4 :]
-                            .rstrip(b"\r\n-")
-                            .decode("utf-8")
-                            .strip()
-                        )
-
+                        format_type = part[header_end + 4:].rstrip(b"\r\n-").decode("utf-8").strip()
+        
         if file_data and file_name and format_type:
-            upload_dir = PROJECT_DIR / "uploads"
-            upload_dir.mkdir(exist_ok=True)
-
-            input_path = upload_dir / file_name
-            with open(input_path, "wb") as f:
-                f.write(file_data)
-
-            try:
-                result_path = run_conversion(str(input_path), "", format_type)
-                self._set_headers()
-                self.wfile.write(
-                    json.dumps(
-                        {
-                            "success": True,
-                            "message": "Conversion successful",
-                            "output_path": result_path,
-                        }
-                    ).encode()
-                )
-            except Exception as e:
-                self._set_headers(500)
-                self.wfile.write(
-                    json.dumps({"success": False, "error": str(e)}).encode()
-                )
+            ConvertHandler.handle_file_upload(self, file_data, file_name, format_type)
         else:
-            self._set_headers(400)
-            self.wfile.write(
-                json.dumps(
-                    {"success": False, "error": "Missing file or format"}
-                ).encode()
-            )
-
+            ConvertHandler._send_error(self, 400, "Missing file or format")
+    
+    def _serve_html_page(self):
+        """服务 HTML 页面"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(HTML_PAGE.encode("utf-8"))
+    
+    def _send_404(self):
+        """发送 404 响应"""
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "Not found"}).encode())
+    
     def log_message(self, format, *args):
-        print(f"[{self.address_string()}] {args[0]}")
-
-
-def run_conversion(input_path: str, output_path: str, format_type: str) -> str:
-    venv_python = PROJECT_DIR / "venv" / "bin" / "python"
-
-    if not venv_python.exists():
-        venv_python = sys.executable
-
-    scripts = {"md2pdf": "md2pdf.py", "md2word": "md2word.py", "pdf2md": "pdf2md.py"}
-
-    if format_type not in scripts:
-        raise ValueError(
-            f"Unsupported format: {format_type} (supported: {', '.join(scripts.keys())})"
-        )
-
-    script = PROJECT_DIR / scripts[format_type]
-    if not script.exists():
-        raise FileNotFoundError(f"Script not found: {script}")
-
-    args = [str(venv_python), str(script), input_path]
-
-    if output_path:
-        if format_type in ["md2pdf", "pdf2md"]:
-            args.extend(["-o", output_path])
-        else:
-            args.append(output_path)
-
-    result = subprocess.run(args, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"Conversion failed: {result.stderr or result.stdout}")
-
-    if not output_path:
-        base_name = os.path.splitext(input_path)[0]
-        extensions = {"md2pdf": ".pdf", "md2word": ".docx", "pdf2md": ".md"}
-        output_path = base_name + extensions[format_type]
-
-    return output_path
+        """自定义日志格式"""
+        RequestLogger.log_request(self)
 
 
 def main():
