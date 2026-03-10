@@ -25,20 +25,17 @@ def pdf_to_text(pdf_path: str) -> str:
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages, 1):
-            # 提取文本
             page_text = page.extract_text()
             if page_text:
                 text_content.append(f"## 第 {i} 页\n")
                 text_content.append(page_text)
                 text_content.append("\n")
 
-            # 提取表格
             tables = page.extract_tables()
             for j, table in enumerate(tables, 1):
                 if table:
                     text_content.append(f"**表格 {j}**\n")
                     for row in table:
-                        # 过滤 None 值并清理单元格内容
                         cleaned_row = [
                             str(cell).strip() if cell is not None else ""
                             for cell in row
@@ -67,13 +64,9 @@ def convert_pdf_to_md(pdf_path: str, output_path: str | None = None) -> str:
         base_name = os.path.splitext(pdf_path)[0]
         output_path = f"{base_name}.md"
 
-    # 提取文本
     content = pdf_to_text(pdf_path)
-
-    # 添加文件头
     md_content = f"# {os.path.basename(pdf_path)}\n\n" + content
 
-    # 写入文件，确保 UTF-8 编码
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
@@ -88,21 +81,19 @@ def main():
 示例:
   python pdf2md.py document.pdf
   python pdf2md.py document.pdf -o output.md
-  python pdf2md.py ./pdfs/*.md --output-dir ./output/
         """,
     )
 
     parser.add_argument("pdf_file", help="PDF 文件路径")
     parser.add_argument("-o", "--output", help="输出文件路径（默认：同名.md 文件）")
-    parser.add_argument("-d", "--output-dir", help="输出目录（批量转换时使用）")
 
     args = parser.parse_args()
 
     try:
         output_path = convert_pdf_to_md(args.pdf_file, args.output)
-        print(f"✓ 转换成功：{output_path}")
+        print(f"[OK] Conversion successful: {output_path}")
     except Exception as e:
-        print(f"✗ 转换失败：{e}", file=sys.stderr)
+        print(f"[ERROR] Conversion failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 

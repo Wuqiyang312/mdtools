@@ -7,6 +7,7 @@ Markdown 转 Word 转换器 (支持中文)
 import sys
 import os
 import re
+import argparse
 from pathlib import Path
 import markdown
 from docx import Document
@@ -17,6 +18,7 @@ from docx.oxml import OxmlElement
 
 
 def set_font_style(paragraph, font_name="微软雅黑", font_size=12):
+    """设置段落字体样式"""
     for run in paragraph.runs:
         run.font.name = font_name
         run.font.size = Pt(font_size)
@@ -30,8 +32,7 @@ def md_to_word(md_path, output_path=None):
     """将 Markdown 文件转换为 Word 文档"""
     md_path = Path(md_path)
     if not md_path.exists():
-        print(f"错误：文件不存在 - {md_path}")
-        return False
+        raise FileNotFoundError(f"文件不存在：{md_path}")
 
     if output_path is None:
         output_path = md_path.with_suffix(".docx")
@@ -76,8 +77,7 @@ def md_to_word(md_path, output_path=None):
             if match:
                 level = len(match.group(1))
                 text = match.group(2)
-
-                p = add_heading_paragraph(text, level)
+                add_heading_paragraph(text, level)
 
         elif line.startswith("- ") or line.startswith("* "):
             flush_paragraph()
@@ -124,8 +124,7 @@ def md_to_word(md_path, output_path=None):
     flush_paragraph()
 
     doc.save(output_path)
-    print(f"✓ 转换成功：{output_path}")
-    return True
+    return output_path
 
 
 def batch_convert(directory=".", pattern="*.md"):
@@ -143,18 +142,36 @@ def batch_convert(directory=".", pattern="*.md"):
             md_to_word(md_file)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--batch":
-            batch_convert(sys.argv[2] if len(sys.argv) > 2 else ".")
-        else:
-            md_file = sys.argv[1]
-            output = sys.argv[2] if len(sys.argv) > 2 else None
-            md_to_word(md_file, output)
+def main():
+    parser = argparse.ArgumentParser(
+        description="Markdown 转 Word 工具（支持中文）",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python md2word.py document.md
+  python md2word.py document.md -o output.docx
+  python md2word.py --batch ./docs/
+        """,
+    )
+
+    parser.add_argument("md_file", nargs="?", help="Markdown 文件路径")
+    parser.add_argument("-o", "--output", help="输出 Word 文件路径")
+    parser.add_argument("--batch", nargs="?", const=".", help="批量转换目录")
+
+    args = parser.parse_args()
+
+    if args.batch:
+        batch_convert(args.batch)
+    elif args.md_file:
+        try:
+            output_path = md_to_word(args.md_file, args.output)
+            print(f"[OK] Conversion successful: {output_path}")
+        except Exception as e:
+            print(f"[ERROR] Conversion failed: {e}", file=sys.stderr)
+            sys.exit(1)
     else:
-        print("用法:")
-        print("  python md2word.py <markdown 文件> [输出文件]")
-        print("  python md2word.py --batch [目录]")
-        print("\n示例:")
-        print("  python md2word.py 使用说明.md")
-        print("  python md2word.py --batch 选题/")
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
