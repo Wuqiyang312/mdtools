@@ -147,6 +147,8 @@ def md_to_pdf_reportlab(md_path, output_path):
                             topMargin=0.75*inch, bottomMargin=0.75*inch,
                             leftMargin=1*inch, rightMargin=1*inch)
     doc.build(parser.elements)
+    
+    return output_path
 
 def main():
     parser = argparse.ArgumentParser(description="Markdown 转 PDF（ReportLab 版，无浏览器依赖）")
