@@ -41,7 +41,8 @@ print("Hello World")
 
 
 @pytest.fixture
-def sample_pdf_path(temp_dir):
-    txt_path = Path(temp_dir) / "sample.txt"
-    txt_path.write_text("测试 PDF 内容\n第二页内容", encoding="utf-8")
-    return str(txt_path)
+def sample_pdf_path():
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent
+    return str(project_root / "tests" / "fixtures" / "sample.pdf")
