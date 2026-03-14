@@ -5,9 +5,7 @@ RUN apk add --no-cache \
     pandoc \
     poppler-utils \
     texlive \
-    texlive-latex \
-    texlive-latexextra \
-    texlive-fontsrecommended
+    texlive-latexextra
 
 WORKDIR /app
 
@@ -21,9 +19,7 @@ RUN apk add --no-cache \
     pandoc \
     poppler-utils \
     texlive \
-    texlive-latex \
-    texlive-latexextra \
-    texlive-fontsrecommended
+    texlive-latexextra
 
 WORKDIR /app
 
