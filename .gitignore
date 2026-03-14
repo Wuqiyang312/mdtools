@@ -11,10 +11,6 @@ wheels/
 .ruff_cache
 venv
 
-# mcp/.venv
-mcp/.venv
-mcp/.ruff_cache
-
 # IDE
 .vscode/
 .idea/
@@ -24,3 +20,8 @@ mcp/.ruff_cache
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated files
+*.docx
+*.pdf
+uploads/

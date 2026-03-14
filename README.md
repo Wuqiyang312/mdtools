@@ -1,81 +1,134 @@
 # MDTools
 
-文档格式转换工具 - 支持 PDF <-> Markdown <-> Word 之间的相互转换
+文档格式转换工具 - 基于 Pandoc，支持 PDF <-> Markdown <-> Word 之间的转换
 
-## 功能特性
+## 功能
 
-- **PDF 转 Markdown**: 提取 PDF 内容并转换为 Markdown 格式，支持表格
-- **Markdown 转 PDF**: 将 Markdown 转换为美观的 PDF 文档，支持中文
-- **Markdown 转 Word**: 将 Markdown 转换为 Word 文档，支持中文格式
+| 端点 | 输入 | 输出 | 状态 |
+|------|------|------|------|
+| `/api/pdf2md` | PDF | Markdown | ✅ |
+| `/api/md2pdf` | Markdown | PDF | ⚠️ 需 xelatex |
+| `/api/md2doc` | Markdown | Word | ✅ |
+| `/api/doc2md` | Word | Markdown | ✅ |
 
 ## 快速开始
 
-### 安装依赖
+### 1. 本地运行
 
 ```bash
+# 安装依赖
 pip install -r requirements.txt
+
+# 启动服务器
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 访问 API 文档
+open http://localhost:8000/docs
 ```
 
-### 命令行使用
+### 2. Docker 运行
 
 ```bash
-# PDF 转 Markdown
-python main.py pdf2md document.pdf
+# 构建镜像
+docker build -t mdtools .
 
-# Markdown 转 PDF
-python main.py md2pdf document.md
+# 运行容器
+docker run -d -p 8000:8000 mdtools
+```
 
+### 3. 使用示例
+
+```bash
 # Markdown 转 Word
-python main.py md2doc document.md
+curl -X POST "http://localhost:8000/api/md2doc" \
+  -F "file=@document.md" \
+  -o output.docx
+
+# Word 转 Markdown
+curl -X POST "http://localhost:8000/api/doc2md" \
+  -F "file=@document.docx" \
+  -o output.md
+
+# PDF 转 Markdown
+curl -X POST "http://localhost:8000/api/pdf2md" \
+  -F "file=@document.pdf" \
+  -o output.md
 ```
 
-### GUI 界面
+## 依赖
+
+| 工具 | 用途 | 必需 |
+|------|------|------|
+| [Pandoc](https://pandoc.org) | 文档转换引擎 | ✅ |
+| [poppler-utils](https://poppler.freedesktop.org) | PDF 文本提取 | ✅ (pdf2md) |
+| [TeX Live / MiKTeX](https://www.tug.org) | PDF 生成 | ⚠️ (md2pdf) |
+
+## 系统依赖安装
+
+### Windows
 
 ```bash
-python main.py
+# 使用 winget 安装
+winget install JohnMacFarlane.Pandoc
+winget install poppler
+
+# 或使用 choco
+choco install pandoc poppler miktex
 ```
 
-### Web 服务
+### macOS
 
 ```bash
-cd server
-python server.py --port 8080
+brew install pandoc poppler mactex
 ```
 
-访问 http://localhost:8080/
-
-### MCP 服务器
+### Linux (Debian/Ubuntu)
 
 ```bash
-cd mcp
-pip install -e .
-python -m mdtools_mcp
+sudo apt install pandoc poppler-utils texlive-xetex
 ```
 
-## 子项目
+## 配置
 
-- **核心工具**: `main.py`, `pdf2md.py`, `md2pdf.py`, `md2word.py`
-- **MCP Server**: `mcp/` - Model Context Protocol 集成
-- **Web Server**: `server/` - HTTP REST API
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `PORT` | `8000` | 服务端口 |
+| `WORKERS` | `1` | Uvicorn worker 数 |
 
 ## 开发
 
 ```bash
 # 运行测试
-pytest
+pytest tests/ -v
 
-# 代码格式化
-ruff format .
-
-# 类型检查
-mypy .
+# 检查代码
+pre-commit run --all-files
 ```
 
-## 打包
+## 发布
+
+### GitHub Actions 自动发布
+
+创建 release 时自动构建并推送 Docker 镜像到 GHCR：
 
 ```bash
-pyinstaller mdtools.spec
+git tag v1.0.0
+git push origin v1.0.0
+# 在 GitHub 上创建 release
 ```
+
+### 镜像地址
+
+```
+ghcr.io/<owner>/mdtools:<version>
+```
+
+## 错误处理
+
+| 状态码 | 说明 |
+|--------|------|
+| `400` | 文件格式错误/不支持的格式 |
+| `500` | 转换失败（依赖缺失） |
 
 ## 许可证
 
