@@ -1,0 +1,220 @@
+# MDTools
+
+文档格式转换 API 服务，支持 PDF、Markdown、Word 格式互转。
+
+## 项目结构
+
+```
+mdtools/
+├── app/
+│   ├── __init__.py       # 包初始化
+│   ├── main.py           # FastAPI 应用入口
+│   ├── converters.py     # 格式转换逻辑
+│   └── dependencies.py   # 依赖检查 (pandoc, poppler)
+├── tests/
+│   ├── __init__.py
+│   ├── test_api.py       # API 端点测试
+│   └── test_converters.py # 转换器单元测试
+├── .github/workflows/
+│   └── docker-publish.yml # GitHub Actions 发布流程
+├── Dockerfile            # 多阶段构建配置
+├── docker-compose.yml    # 本地开发配置
+├── requirements.txt      # Python 依赖
+└── pytest.ini           # 测试配置
+```
+
+## API 端点
+
+### GET /health
+健康检查
+
+```bash
+curl http://localhost:8000/health
+# {"status": "healthy"}
+```
+
+### POST /api/pdf2md
+PDF 转 Markdown
+
+```bash
+curl -X POST http://localhost:8000/api/pdf2md \
+  -F "file=@document.pdf" \
+  -o output.md
+```
+
+### POST /api/md2pdf
+Markdown 转 PDF（需要 xelatex）
+
+```bash
+curl -X POST http://localhost:8000/api/md2pdf \
+  -F "file=@document.md" \
+  -o output.pdf
+```
+
+### POST /api/md2doc
+Markdown 转 Word
+
+```bash
+curl -X POST http://localhost:8000/api/md2doc \
+  -F "file=@document.md" \
+  -o output.docx
+```
+
+### POST /api/doc2md
+Word 转 Markdown
+
+```bash
+curl -X POST http://localhost:8000/api/doc2md \
+  -F "file=@document.docx" \
+  -o output.md
+```
+
+## 核心代码
+
+### app/main.py
+
+```python
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import Response
+
+app = FastAPI(title="MDTools API")
+
+@app.post("/api/md2doc")
+async def md_to_doc(file: UploadFile = File(...)):
+    """Markdown 转 Word"""
+    return await process_file(file, converters.convert_md_to_doc, ".docx", 
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+async def process_file(file: UploadFile, converter, output_ext: str, ...):
+    # 1. 读取上传内容
+    contents = await file.read()
+    
+    # 2. 写入临时文件（使用原始扩展名）
+    with tempfile.NamedTemporaryFile(suffix=input_ext) as tmp:
+        tmp.write(contents)
+        tmp.flush()
+    
+    # 3. 执行转换
+    output_path = converter(tmp_path)
+    
+    # 4. 返回结果
+    return Response(content=file_content, media_type=content_type)
+```
+
+### app/converters.py
+
+```python
+def convert_md_to_doc(md_path: str) -> str:
+    """使用 pandoc 将 Markdown 转为 Word"""
+    output_path = md_path.replace(".md", ".docx")
+    cmd = ["pandoc", md_path, "-o", output_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"转换失败：{result.stderr}")
+    
+    return output_path
+```
+
+### app/dependencies.py
+
+```python
+def check_pandoc() -> bool:
+    """检查 pandoc 是否可用"""
+    try:
+        subprocess.run(["pandoc", "--version"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+def check_poppler() -> bool:
+    """检查 poppler (pdftotext) 是否可用"""
+    try:
+        subprocess.run(["pdftotext", "-v"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+```
+
+## Docker 配置
+
+### Dockerfile
+
+```dockerfile
+# 多阶段构建
+FROM python:3.11-alpine AS builder
+RUN apk add --no-cache pandoc poppler-utils texlive
+RUN pip install --user -r requirements.txt
+
+FROM python:3.11-alpine
+RUN apk add --no-cache pandoc poppler-utils texlive
+COPY --from=builder /root/.local /root/.local
+COPY app/ ./app/
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### docker-compose.yml
+
+```yaml
+version: '3.8'
+services:
+  mdtools:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app  # 热重载开发
+```
+
+## 测试
+
+```python
+# tests/test_api.py
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+def test_md_to_doc():
+    md_content = b"# Test\n\nHello World"
+    files = {"file": ("test.md", io.BytesIO(md_content), "text/markdown")}
+    response = client.post("/api/md2doc", files=files)
+    assert response.status_code == 200
+```
+
+## 常见问题
+
+### Q: 为什么 md2pdf 返回 400 错误？
+A: 需要安装 LaTeX 环境（xelatex）。推荐：
+- Windows: 安装 MiKTeX
+- macOS: 安装 MacTeX
+- Linux: `apt install texlive-xetex`
+- Docker: 镜像已包含
+
+### Q: 如何支持中文文件名？
+A: 已实现 RFC 5987 编码，自动处理中文文件名。
+
+### Q: 文件大小限制？
+A: 默认 50MB，可在 `app/main.py` 修改 `MAX_FILE_SIZE`。
+
+### Q: 如何增加并发？
+A: 设置环境变量 `WORKERS=4` 运行多个 Uvicorn worker。
+
+## GitHub Actions
+
+发布 workflow (`.github/workflows/docker-publish.yml`):
+
+```yaml
+name: Publish Docker Image
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-push:
+    uses: docker/build-push-action@v5
+    with:
+      push: true
+      tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+      platforms: linux/amd64,linux/arm64
+```
